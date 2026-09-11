@@ -65,6 +65,11 @@ jobs:
           if ($obj.ok) { Write-Host 'resolved an installation (unexpected on CI, but contract holds)' }
           else { Write-Host 'no e2 studio present - reported cleanly, contract holds' }
 
+          # The resolver's own exit code is part of the contract under test, not this
+          # step's verdict. Without this the step inherits it and fails even when every
+          # assertion above passed.
+          exit 0
+
       - name: Resolver finds a synthetic install (no e2 studio needed)
         shell: pwsh
         run: |
@@ -97,3 +102,4 @@ jobs:
 
           Remove-Item $sandbox -Recurse -Force -ErrorAction SilentlyContinue
           Write-Host 'discovery verified without any local e2 studio'
+          exit 0
