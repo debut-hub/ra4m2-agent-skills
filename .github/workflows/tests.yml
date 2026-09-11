@@ -29,15 +29,71 @@ jobs:
         shell: powershell
         run: ./tests/run-tests.ps1
 
-      - name: Resolver smoke test
+      - name: Resolver output contract
         shell: pwsh
         run: |
-          # On a runner with no e2 studio this must fail cleanly (non-zero) with valid
-          # JSON on stdout, not throw or print diagnostics to stdout.
+          # A CI runner has no e2 studio, so the resolver is EXPECTED to report
+          # ok=false and exit non-zero. That clean report is success for this step;
+          # what matters is the output contract, which must hold either way.
+          $ErrorActionPreference = 'Continue'
           $raw = & ./tools/resolve-env.ps1 -Quiet 2>$null
+          $exit = $LASTEXITCODE
           $json = ($raw | Out-String).Trim()
-          Write-Host "raw output:"
+
+          Write-Host "exit code: $exit"
+          Write-Host "stdout:"
           Write-Host $json
-          $obj = $json | ConvertFrom-Json   # must parse: stdout is JSON only
-          if ($obj.ok) { Write-Host 'resolved an install (unexpected on CI)' }
-          else { Write-Host 'no install present, reported cleanly' }
+
+          if (-not $json.StartsWith('{')) {
+            throw "stdout must contain only JSON, got: $($json.Substring(0, [Math]::Min(80, $json.Length)))"
+          }
+          $obj = $json | ConvertFrom-Json
+
+          foreach ($k in @('ok','resolvedBy','e2studio','toolchain','make','rfp','serial','notes')) {
+            if (-not ($obj.PSObject.Properties.Name -contains $k)) { throw "missing key: $k" }
+          }
+
+          # ok must agree with the exit code, so callers can rely on either signal.
+          if ($obj.ok -and $exit -ne 0) { throw "ok=true but exit code was $exit" }
+          if (-not $obj.ok -and $exit -eq 0) { throw "ok=false but exit code was 0" }
+
+          # A single serial port must still serialise as an array, not an object.
+          if ($null -ne $obj.serial.ports -and $obj.serial.ports -isnot [array]) {
+            throw "serial.ports must be an array, got $($obj.serial.ports.GetType().Name)"
+          }
+
+          if ($obj.ok) { Write-Host 'resolved an installation (unexpected on CI, but contract holds)' }
+          else { Write-Host 'no e2 studio present - reported cleanly, contract holds' }
+
+      - name: Resolver finds a synthetic install (no e2 studio needed)
+        shell: pwsh
+        run: |
+          # Deterministic proof that discovery works on a machine that has nothing
+          # installed: build a minimal e2 studio tree and point the resolver at it.
+          $ErrorActionPreference = 'Continue'
+          $sandbox = Join-Path $env:RUNNER_TEMP ("synthetic-" + [guid]::NewGuid().ToString('N').Substring(0,8))
+          $base = Join-Path $sandbox 'Renesas\RA\e2studio_v2099-01_fsp_v9.9.9'
+          New-Item -ItemType Directory -Force -Path (Join-Path $base 'eclipse') | Out-Null
+          New-Item -ItemType File -Force -Path (Join-Path $base 'eclipse\e2studio.exe') | Out-Null
+          $gcc = Join-Path $base 'toolchains\gcc_arm\some-toolchain-name\bin'
+          New-Item -ItemType Directory -Force -Path $gcc | Out-Null
+          New-Item -ItemType File -Force -Path (Join-Path $gcc 'arm-none-eabi-gcc.exe') | Out-Null
+          $mk = Join-Path $base 'eclipse\plugins\com.renesas.ide.exttools.gnumake.win32.x86_64_9.9.9.v20990101-0000\mk'
+          New-Item -ItemType Directory -Force -Path $mk | Out-Null
+          New-Item -ItemType File -Force -Path (Join-Path $mk 'make.exe') | Out-Null
+
+          $raw = & ./tools/resolve-env.ps1 -Quiet -E2Studio $base 2>$null
+          $exit = $LASTEXITCODE
+          $obj = ($raw | Out-String).Trim() | ConvertFrom-Json
+
+          Write-Host "resolvedBy: $($obj.resolvedBy.e2studio)  root: $($obj.e2studio.root)"
+          Write-Host "gccBin: $($obj.toolchain.gccBin)"
+          Write-Host "make:   $($obj.make.exe)"
+
+          if ($exit -ne 0 -or -not $obj.ok) { throw "resolver failed on a synthetic install (exit $exit)" }
+          if ($obj.resolvedBy.e2studio -ne 'parameter') { throw "expected the parameter tier to answer, got '$($obj.resolvedBy.e2studio)'" }
+          if (-not (Test-Path $obj.toolchain.gccBin)) { throw "gccBin does not exist: $($obj.toolchain.gccBin)" }
+          if (-not (Test-Path $obj.make.exe)) { throw "make does not exist: $($obj.make.exe)" }
+
+          Remove-Item $sandbox -Recurse -Force -ErrorAction SilentlyContinue
+          Write-Host 'discovery verified without any local e2 studio'
