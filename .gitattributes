@@ -1,0 +1,25 @@
+# Normalise line endings in the repository. Without this, a Windows checkout commits
+# CRLF and the `#!/usr/bin/env pwsh` shebang breaks on Unix-based runners.
+* text=auto
+
+# Scripts must keep LF: they are executable and carry shebangs.
+*.ps1   text eol=lf
+*.psm1  text eol=lf
+*.sh    text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+
+# Markdown and JSON are diffed and parsed more happily with LF.
+*.md    text eol=lf
+*.json  text eol=lf
+
+# Binary-ish files should never be line-ending translated.
+*.png   binary
+*.jpg   binary
+*.pdf   binary
+*.srec  binary
+*.hex   binary
+*.elf   binary
+
+# Make the language stats on GitHub useful.
+*.ps1   linguist-language=PowerShell
