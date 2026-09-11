@@ -1,0 +1,43 @@
+name: tests
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  powershell-tests:
+    # The tooling targets Windows (e2 studio / rfp-cli / CH340). The suite itself needs
+    # no e2 studio and no board, so it runs cleanly here.
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Report PowerShell version
+        shell: pwsh
+        run: $PSVersionTable | Out-String
+
+      - name: Run test suite (pwsh)
+        shell: pwsh
+        run: ./tests/run-tests.ps1
+
+      - name: Run test suite (Windows PowerShell 5.1)
+        # Windows ships 5.1 and many students will have only that. Behaviour differs
+        # (notably $PSScriptRoot and stream handling), so exercise both.
+        shell: powershell
+        run: ./tests/run-tests.ps1
+
+      - name: Resolver smoke test
+        shell: pwsh
+        run: |
+          # On a runner with no e2 studio this must fail cleanly (non-zero) with valid
+          # JSON on stdout, not throw or print diagnostics to stdout.
+          $raw = & ./tools/resolve-env.ps1 -Quiet 2>$null
+          $json = ($raw | Out-String).Trim()
+          Write-Host "raw output:"
+          Write-Host $json
+          $obj = $json | ConvertFrom-Json   # must parse: stdout is JSON only
+          if ($obj.ok) { Write-Host 'resolved an install (unexpected on CI)' }
+          else { Write-Host 'no install present, reported cleanly' }
