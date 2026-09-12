@@ -1,5 +1,7 @@
 # RA4M2 Agent Skills
 
+[English](README.md) | [中文](README.zh-CN.md)
+
 Agent skills that help an LLM assistant drive **Renesas RA / e² studio / FSP** embedded
 development on Windows — building from the command line, flashing over the SCI boot loader,
 and diagnosing the failures that generic advice gets wrong.
